@@ -1,40 +1,21 @@
 <template>
     <div>
-        <div>
-            <!-- 👉 Link to API example  -->
-            <h3>Link to "API" : </h3>
-            <p style="color: #1313aa">{{ linkToApi }}</p>
-        </div>
         <div class="container">
             <div>
-                <h2>Filters</h2>
-
-                <Filters
-                        :original-filters="originalFilters"
-                        :options="options"
-                        :selected-values="selectedValues"
-                        :price-filter="priceFilter"
-                        :name-filter="nameFilter"
-                        :items-per-page="itemsPerPage"
-                        :filters-changed="filtersChanged"
-
-                        @update-selected-values="updateSelectedValues"
-                        @update-price-filter="updatePriceFilter"
-                        @update-items-per-page="updateItemsPerPage"
-                        @update-name-filter="updateNameFilter"
-
-                        @is-filters-change="isFiltersChange"
-                        @apply-filters="applyFilters"
-                        @reset-filters="resetFilters"
-                />
-
-                <div class="divider"></div>
+                <!-- 👉 Link to API example  -->
+                <h3>Link to "API" : </h3>
+                <p style="color: #1313aa">{{ linkToApi }}</p>
             </div>
+            <div class="divider"></div>
             <div>
-
                 <!-- 👉  preview table -->
                 <h2>Preview table</h2>
                 <Table :items="paginatedItems"/>
+                <div class="divider"></div>
+
+                <h3>Items per page</h3>
+                <PerPage :items-per-page="itemsPerPage"
+                         @update-items-per-page="updateItemsPerPage"/>
 
                 <!-- 👉  table pagination -->
                 <Pagination
@@ -48,12 +29,13 @@
 </template>
 
 <script>
-    import { ref, computed, onMounted, watch } from 'vue';
+    import { ref, computed, watch } from 'vue';
     import { useRoute, useRouter } from 'vue-router';
-    import Table from '@/components/Table.vue';
-    import Pagination from '@/components/Pagination.vue';
-    import Filters from '@/components/Filters.vue';
+    import { useStore } from 'vuex';
 
+    import Table from '@/components/tables/Table.vue';
+    import PerPage from "@/components/tableFilters/PerPage.vue";
+    import Pagination from '@/components/tableFilters/Pagination.vue';
 
     function memoize(fn) {
         const cache = new Map();
@@ -84,22 +66,26 @@
 
     export default {
         name: 'Home',
-        components: { Table, Pagination, Filters },
+        components: { Table, Pagination, PerPage },
+
         setup() {
             const route = useRoute();
             const router = useRouter();
+            const store = useStore();
 
+            // vuex variables
+            const searchValue = computed(() => store.state.search.searchValue);
+            const priceValue = computed(() => store.state.sideMenu.price);
+            const selectedValue = computed(() => store.state.sideMenu.selectedValues);
+            const triggerParsing = computed(() => store.state.sideMenu.triggerParsing);
+
+
+            // local variables
             const options = ref([
                 { id: 1, type: 'hatchback', active: false },
                 { id: 2, type: 'sedan', active: false },
                 { id: 3, type: 'SUV', active: false },
             ]);
-
-            const linkToApi = ref('');
-            const currentPage = ref(1);
-            const itemsPerPage = ref(5);
-            const filtersChanged = ref(false)
-
             const items = ref([
                 { id: 1, name: 'car 1', price: 10, type: 'hatchback' },
                 { id: 2, name: 'car 2', price: 16, type: 'SUV' },
@@ -133,38 +119,32 @@
                 { id: 30, name: 'car 30', price: 23, type: 'sedan' },
             ]);
 
-            const selectedValues = ref([]);
+            const linkToApi = ref('');
+            const currentPage = ref(1);
+            const itemsPerPage = ref(5);
+
             const priceFilter = ref(null);
             const nameFilter = ref('');
-            const originalFilters = ref({ selected: [], price: null, name: '', itemsPerPage: 5 });
+            const selectedValues = ref('');
 
+
+            // local functions
             const applyFilters = (resetPage) => {
                 if (resetPage) currentPage.value = 1;
 
-                const query = {
-                    selected: selectedValues.value.map(item => item.id).join(','),
-                    price: priceFilter.value || '',
-                    name: nameFilter.value || '',
-                    page: currentPage.value,
-                    itemsPerPage: itemsPerPage.value
-                };
+                const query = {};
 
-                originalFilters.value = {
-                    selected: [...selectedValues.value],
-                    price: priceFilter.value,
-                    name: nameFilter.value,
-                    itemsPerPage: itemsPerPage.value
-                };
-                filtersChanged.value = false;
+                if(searchValue.value && searchValue.value.length > 0) query.name = searchValue.value;
+                if(selectedValue.value && selectedValue.value.length > 0) query.selected = selectedValue.value.map(item => item.id).join(',');
+                if(priceValue.value) query.price = priceValue.value;
+                query.itemsPerPage = itemsPerPage.value;
+                query.page = currentPage.value;
+
+                console.log('query', query)
 
                 router.push({ path: '/', query });
             };
-            const resetFilters = () => {
-                router.push({ path: '/' });
-            }
-
             const getQueryParamsMemo = memoize((params, options, fullPath) => {
-
                 let memo = {
                     options,
                     selectedValues: '',
@@ -174,20 +154,16 @@
                     nameFilter: params.name ? params.name : '',
                     currentPage: params.page ? Number(params.page) : 1,
                     itemsPerPage: params.itemsPerPage ? Number(params.itemsPerPage) : 5,
-                    originalFilters: ''
                 }
 
                 memo.selectedValues = memo.options.filter((option) => memo.selectedIds.includes(option.id));
                 memo.options.forEach(option => {
-                    const isSelected = selectedValues.value.some(selected => selected.id === option.id);
+                    const isSelected = selectedValue.value.some(selected => selected.id === option.id);
                     if (isSelected) option.active = true;
                 });
 
-                console.warn('return memo',memo)
-
                 return memo;
             });
-
             const parseData = () => {
                 const memoData = getQueryParamsMemo(route.query, options.value, route.fullPath);
                 console.log('parse data', memoData)
@@ -195,7 +171,12 @@
                 linkToApi.value = route.fullPath;
                 selectedValues.value = memoData.selectedValues;
                 priceFilter.value = memoData.priceFilter ? Number(memoData.priceFilter) : null;
-                nameFilter.value = memoData.nameFilter || '';
+                StartSearch(memoData.nameFilter || '');
+
+                store.dispatch('sideMenu/initSideMenu', {
+                    selectedValues : selectedValues.value,
+                    price: memoData.priceFilter ? Number(memoData.priceFilter) : null
+                });
 
                 currentPage.value = memoData.currentPage ? Number(memoData.currentPage) : 1;
                 itemsPerPage.value = memoData.itemsPerPage ? Number(memoData.itemsPerPage) : 5;
@@ -204,68 +185,7 @@
                     const isSelected = selectedValues.value.some(selected => selected.id === option.id);
                     if (isSelected) option.active = true;
                 });
-
-                originalFilters.value = {
-                    selected: [...selectedValues.value],
-                    price: priceFilter.value,
-                    name: nameFilter.value,
-                    itemsPerPage: itemsPerPage.value
-                };
             }
-
-            const updateSelectedValues= (newValue) => {
-                selectedValues.value = newValue;
-            }
-            const updatePriceFilter= (newValue) => {
-                priceFilter.value = newValue;
-            }
-            const updateItemsPerPage= (newValue) => {
-                itemsPerPage.value = newValue;
-            }
-            const updateNameFilter= (newValue) => {
-                nameFilter.value = newValue;
-            }
-
-            const isFiltersChange = () => {
-                let isTrue =
-                    selectedValues.value.length !== originalFilters.value.selected.length ||
-                    selectedValues.value.some((v, i) => v.id !== originalFilters.value.selected[i].id) ||
-                    priceFilter.value !== originalFilters.value.price ||
-                    nameFilter.value !== originalFilters.value.name ||
-                    itemsPerPage.value !== originalFilters.value.itemsPerPage;
-
-                filtersChanged.value = isTrue;
-            }
-
-            // onMounted(() => {
-            //     parseData()
-            // });
-
-            watch(() => route.query, () => {
-                parseData();
-            });
-
-            const filteredItems = computed(() => {
-                return items.value.filter((item) => {
-                    const matchesSelected = selectedValues.value.length === 0 ||
-                        selectedValues.value.some((selected) => selected.type === item.type);
-
-                    const matchesPrice = priceFilter.value === null || item.price >= priceFilter.value;
-                    const matchesName = nameFilter.value === '' || item.name.toLowerCase().includes(nameFilter.value.toLowerCase());
-                    return matchesSelected && matchesPrice && matchesName;
-                });
-            });
-
-            const paginatedItems = computed(() => {
-                const start = (currentPage.value - 1) * itemsPerPage.value;
-                const end = start + itemsPerPage.value;
-                return filteredItems.value.slice(start, end);
-            });
-
-            const totalPages = computed(() => {
-                return Math.ceil(filteredItems.value.length / itemsPerPage.value);
-            });
-
             const changePage = (page) => {
                 if (page >= 1 && page <= totalPages.value) {
                     currentPage.value = page;
@@ -273,33 +193,80 @@
                 }
             };
 
+
+            // Vuex actions
+            const StartSearch = (value) => {
+                store.dispatch('search/StartSearch', value);
+            };
+
+
+            // оновлення даних з компонентів
+            const updateItemsPerPage = (newValue) => {
+                itemsPerPage.value = newValue;
+                applyFilters(true);
+            }
+            const updateNameFilter = (newValue) => {
+                nameFilter.value = newValue;
+            }
+
+
+            watch(() => route.query, () => {
+                parseData();
+            });
+            watch(() => triggerParsing.value, () => {
+                console.warn('watch trigger parsing')
+                applyFilters();
+            })
+
+            const filteredItems = computed(() => {
+                return items.value.filter((item) => {
+                    const matchesSelected = selectedValue.value.length === 0 ||
+                        selectedValue.value.some((selected) => selected.type === item.type);
+
+                    const matchesPrice = priceValue.value === null || item.price >= priceValue.value;
+                    const matchesName = searchValue.value === '' || item.name.toLowerCase().includes(searchValue.value.toLowerCase());
+                    return matchesSelected && matchesPrice && matchesName;
+                });
+            });
+
+            const paginatedItems = computed(() => {
+                const start = (currentPage.value - 1) * itemsPerPage.value;
+                const end = start + itemsPerPage.value;
+                return filteredItems.value ? filteredItems.value.slice(start, end) : '';
+            });
+
+            const totalPages = computed(() => {
+                return Math.ceil(filteredItems.value ? filteredItems.value.length / itemsPerPage.value : 1);
+            });
+
+
             return {
                 options,
+                selectedValue,
                 selectedValues,
                 priceFilter,
                 nameFilter,
                 filteredItems,
                 applyFilters,
-                resetFilters,
                 linkToApi,
                 paginatedItems,
                 currentPage,
                 totalPages,
                 itemsPerPage,
                 changePage,
-                originalFilters,
-                updateSelectedValues,
-                updatePriceFilter,
                 updateItemsPerPage,
                 updateNameFilter,
-                isFiltersChange,
-                filtersChanged,
                 getQueryParamsMemo,
-                parseData
+                parseData,
+                priceValue,
+                searchValue,
+                StartSearch,
+                triggerParsing
             };
         },
     };
 </script>
+
 
 <style>
     #app {
@@ -326,12 +293,11 @@
     }
     .container {
         width: 800px;
-        display: grid;
-        grid-template-columns: 1fr 1fr;
         padding: 40px 14px;
         gap: 20px;
         border: 1px solid gray;
         border-radius: 8px;
+        background-color: #e9e9e9;
     }
     .divider {
         padding: 16px 0;
